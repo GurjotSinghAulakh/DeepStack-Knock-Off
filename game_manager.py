@@ -1,263 +1,166 @@
-import random
-from collections import Counter
+from player import Player
+from dataclasses import dataclass, field
+import numpy as np
+from state_manager import StateManager
+from config import MAX_STAGE_RAISES
+from poker_oracle import PokerOracle
+from itertools import cycle
+# stages = set(["preflop", "flop", "turn", "river"])
 
 
-class Card:
-    SUITS = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
-    RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+@dataclass
+class GameManager:
+    players: list[Player]
+    lost_players: list[Player] = field(init=False)
+    folded_players: list[Player] = field(init=False)
+    player_count: int = field(init=False)
+    current_pile: int = field(init=False)
+    current_community: list[str] = field(init=False)
+    current_deck: list[str] = field(init=False)
+    player_bets: dict[Player, int] = field(init=False)
+    folded_pot: int = field(init=False)
+    cycle_players_big: cycle = field(init=False)
+    cycle_players_small: cycle = field(init=False)
+    oracle: PokerOracle = PokerOracle()
 
-    def __init__(self, suit, rank):
-        self.suit = suit
-        self.rank = rank
-    
-    @property
-    def value(self):
-        return Card.RANKS.index(self.rank) + 2  # value from 2 to 14, Ace is high
+    def __post_init__(self):
+        self.player_count = len(self.players)
+        self.folded_players = []
+        self.lost_players = []
+        self.current_pile = 0
+        self.folded_pot = 0
+        self.cycle_players_big = cycle(self.players)
+        self.cycle_players_small = cycle(self.players)
 
-    def __repr__(self):
-        return f"{self.rank} of {self.suit}"
+    def play_game(self):
+        while self.player_count > 1:
+            self.current_deck = self.oracle.generate_deck()
+            np.random.shuffle(self.current_deck)
+            self.play_stage("preflop")
+            self.play_stage("flop")
+            self.play_stage("turn")
+            self.play_stage("river")
+            self.end_hand()
+        print(f"{self.players[0].name} has won the game")
+        print(f"{', '.join([p.name for p in self.lost_players])} has lost the game")
 
-class Deck:
-    def __init__(self):
-        self.cards = [Card(suit, rank) for suit in Card.SUITS for rank in Card.RANKS]
-        self.shuffle()
+    def get_blinds(self):
+        big_blind = next(self.cycle_players_big)
+        small_blind = next(self.cycle_players_small)
+        while not big_blind.active:
+            big_blind = next(self.cycle_players_big)
+            small_blind = next(self.cycle_players_small)
 
-    def shuffle(self):
-        random.shuffle(self.cards)
-
-    def deal(self):
-        try:
-            return self.cards.pop()
-        except IndexError:
-            return None  # No more cards in the deck
-
-class Player:
-
-    def __init__(self, name):
-        self.name = name
-        self.hand = []
-        self.chips = 100000
-        self.in_play = True
-        self.current_bet = 0
-
-    def add_card(self, card):
-        self.hand.append(card)
-
-    def bet(self, amount):
-        if amount <= self.chips:
-            self.chips -= amount
-            return amount
-        else:
-            raise ValueError("Not enough chips")
-
-    def fold(self):
-        self.in_play = False
-
-class TexasHoldem:
-    def __init__(self, players):
-        self.players = []
-        self.players = players
-        self.pot = 0
-        self.deck = Deck()
-        self.community_cards = []
-        self.dealer_position = 0 
-        self.current_bet = 0
-        self.round_finished = False
-    
-    def export_state(self):
-        # Add your logic here to export the current state of the game
-        state = {
-            "players": [player.name for player in self.players],
-            "pot": self.pot,
-            "community_cards": [str(card) for card in self.community_cards],
-            "dealer_position": self.dealer_position,
-            "current_bet": self.current_bet,
-            "round_finished": self.round_finished
-        }
-        return state
+        if small_blind is big_blind:
+            small_blind = next(self.cycle_players_small)
+        print(f"Big blind (10): {big_blind.name}, Small blind(5): {small_blind.name}\n")
+        return big_blind, small_blind
 
     def deal_hole_cards(self):
-        for _ in range(2):
+        for player in self.players:
+            print(f"Dealing hole cards to {player}")
+            print(self.current_deck[:2])
+            player.hole_cards = self.current_deck[:2]
+            self.current_deck = self.current_deck[2:]
+
+    def play_stage(self, stage):
+        print(f"\n\n\n----------Starting {stage} stage----------")
+        if stage == "preflop":
+            self.folded_pot = 0
+            self.players = self.players + self.folded_players
+            self.folded_players = []
+            self.deal_hole_cards()
+            self.reset_player_bets()
+            self.reset_pile()
+
+            big_blind, small_blind = self.get_blinds()
+            self.update_pile(5, small_blind, "small blind")
+            self.update_pile(10, big_blind, "big blind")
+
+        elif stage == "flop":
+            self.public_cards = self.current_deck[:3]
+            self.current_deck = self.current_deck[3:]
+            print(f"Community cards: {self.public_cards}")
+        elif stage == "turn":
+            self.public_cards.append(self.current_deck.pop(0))
+            print(f"Community cards: {self.public_cards}")
+        elif stage == "river":
+            self.public_cards.append(self.current_deck.pop(0))
+            print(f"Community cards: {self.public_cards}")
+
+        if len(self.players) == 1:
+            return
+
+        player_checks = {player: False for player in self.players}
+        stage_raises = 0
+
+        while not all(player_checks.values()):
             for player in self.players:
-                if player.in_play:
-                    player.add_card(self.deck.deal())
+                state = {"player": player, "player_bets": self.player_bets, "stage": stage, "stage_raises": stage_raises}
+                legal_actions = StateManager.get_legal_actions(state)
+                player_action = player.choose_action(legal_actions)
+                if player_action["action"] == "fold":
+                    self.folded_players.append(player)
+                    self.folded_pot += self.player_bets.pop(player)
+                    player_checks[player] = True
+                    self.players.remove(player)
+                    if len(self.players) == 1:
+                        return
+                elif player_action["action"] == "check":
+                    player_checks[player] = True
+                elif player_action["action"] == "call":
+                    player_checks[player] = True
+                elif player_action["action"] == "raise":
+                    stage_raises += 1
+                    player_checks[player] = False
 
-    def rotate_dealer(self):
-        self.dealer_position = (self.dealer_position + 1) % len(self.players)
+                self.update_pile(player_action["amount"], player, player_action["action"])
 
-    def handle_betting_round(self):
-        for player in self.players:
-            if player.in_play:
-                actions = self.legal_actions(player)
-                chosen_action = random.choice(actions)  # For simplicity, choosing random action
-                self.process_action(player, chosen_action)
+    def update_pile(self, amount, player, action):
+        if player.pile < amount:
+            print(f"{player.name} has gone all-in")
+            amount = player.pile
+        self.current_pile += amount
+        self.player_bets[player] += amount
+        player.pile -= amount
+        # print(f"Player piles: {[player.pile for player in self.player_bets]}, on the table: {self.current_pile}\n")
 
-    def add_player(self, player):
-        self.players.append(player)
+    def reset_pile(self):
+        self.current_pile = 0
 
-    def start_round(self):
-        self.rotate_dealer()
-        self.deck = Deck()  
-        self.community_cards = []
-        self.community_cards.clear()
-        self.deal_cards(2)
-        self.betting_round()
-        self.flop()
-        self.betting_round()
-        self.turn()
-        self.betting_round()
-        self.river()
-        self.betting_round()
-        self.determine_winner()
-        for player in self.players:
-            player.in_play = True
-            player.hand = []
-            player.current_bet = 0
-            player.add_card(self.deck.deal())
-            player.add_card(self.deck.deal())
-        self.deal_hole_cards()
-        self.handle_betting_round()
+    def reset_player_bets(self):
+        self.player_bets = {player: 0 for player in self.players}
 
-    def round_over(self):
-        # Example condition for ending a round
-        active_players = [p for p in self.players if p.in_play]
-        if len(active_players) <= 1 or self.all_bets_settled():
-            self.round_finished = True
-        return self.round_finished
+    def end_hand(self):
+        winners = self.oracle.compare_hands(self.players, self.public_cards)
 
-    def all_bets_settled(self):
-        # Assuming a method to check if all bets are settled for this round
-        return all(player.current_bet == self.current_bet for player in self.players if player.in_play)
+        all_bets = [self.player_bets[player] for player in self.players]
+        min_allin = min(all_bets)
+        main_pot = sum(min(min_allin, bet) for bet in all_bets) + self.folded_pot
+        excess_bets = {player: max(0, self.player_bets[player] - min_allin) for player in self.players}
 
-    def legal_actions(self, player):
-        actions = ["fold"]
-        if player.current_bet < self.current_bet:
-            if player.chips > (self.current_bet - player.current_bet):
-                actions.append("call")
-            else:
-                actions.append("all-in")
+        # Return excess bets
+        for player, excess in excess_bets.items():
+            player.pile += excess
+            self.current_pile -= excess  # Adjust the current pile to remove the returned bets
+
+        # Distribute main pot
+        if len(winners) == 1:
+            winners[0].pile += main_pot
         else:
-            actions.append("check")
-        if player.chips > self.current_bet:
-            actions.append("raise")
-        return actions
-    
-    def process_action(self, player, action):
-        if action == "fold":
-            player.fold()
-        elif action == "call":
-            bet_amount = self.current_bet - player.current_bet
-            self.pot += player.bet(bet_amount)
-        elif action == "check":
-            pass  # No action needed
-        elif action == "raise":
-            raise_amount = player.chips // 2  # Example logic
-            bet_amount = self.current_bet - player.current_bet + raise_amount
-            self.pot += player.bet(bet_amount)
-            self.current_bet = player.current_bet + raise_amount
+            for winner in winners:
+                winner.pile += main_pot // len(winners)
 
+        self.reset_pile()
+        print(f"{[winner.name for winner in winners]} win(s) the hand")
 
-    def deal_cards(self, count):
-        for _ in range(count):
-            for player in self.players:
-                card = self.deck.deal()
-                if card:
-                    player.add_card(card)
+        # Check for players who have gone bust
+        self.player_count -= sum(player.pile == 0 for player in self.players)
+        newly_lost_players = [player for player in self.players if player.pile == 0]
+        for player in newly_lost_players:
+            player.active = False
 
-    def flop(self):
-        self.deal_community_cards(3)
+        self.lost_players.extend(newly_lost_players)
+        self.players = [player for player in self.players if player.pile > 0]
 
-    def turn(self):
-        self.deal_community_cards(1)
-
-    def river(self):
-        self.deal_community_cards(1)
-
-    def deal_community_cards(self, count):
-        for _ in range(count):
-            card = self.deck.deal()
-            if card:
-                self.community_cards.append(card)
-
-    def betting_round(self):
-        for player in self.players:
-            if player.in_play:
-                try:
-                    bet = player.bet(10)  # Simplified fixed betting for now
-                    self.pot += bet
-                except ValueError as e:
-                    print(str(e))
-                    player.fold()
-                    print(f"{player.name} folds.")
-
-    def determine_winner(self):
-        best_score = None
-        winning_player = None
-
-        for player in self.players:
-            combined_hand = player.hand + self.community_cards
-            hand_score = self.evaluate_hand(combined_hand)
-            if not best_score or hand_score > best_score:
-                best_score = hand_score
-                winning_player = player
-
-        print(f"{winning_player.name} wins the round with a hand rank of {best_score[0]} and score {best_score[1]}.")
-        winning_player.chips += self.pot
-        self.pot = 0  # Reset the pot for the next round
-
-    def evaluate_hand(self, cards):
-        ranks = [card.value for card in cards]
-        suits = [card.suit for card in cards]
-        rank_counts = Counter(ranks).most_common()
-        suit_counts = Counter(suits).most_common()
-
-        # Sort cards by rank and use reverse order (highest first)
-        sorted_cards = sorted(cards, key=lambda card: (card.value), reverse=True)
-
-        is_flush = suit_counts[0][1] >= 5
-        is_straight = self.is_straight(sorted_cards)
-
-        # Flush and straight flush checks
-        if is_flush:
-            if is_straight:
-                sorted_flush_cards = [card for card in sorted_cards if card.suit == suit_counts[0][0]]
-                straight_flush = self.is_straight(sorted_flush_cards)
-                if straight_flush:
-                    return (9, straight_flush[0])  # Highest card in the straight flush
-            return (6, sorted_cards[0].value)  # Highest card in flush
-
-        # Four of a kind, full house, three of a kind, two pairs, one pair
-        if rank_counts[0][1] == 4:
-            return (8, rank_counts[0][0])  # Four of a kind
-        elif rank_counts[0][1] == 3:
-            if rank_counts[1][1] == 2:
-                return (7, rank_counts[0][0])  # Full house
-            return (4, rank_counts[0][0])  # Three of a kind
-        elif rank_counts[0][1] == 2:
-            if rank_counts[1][1] == 2:
-                return (3, rank_counts[0][0])  # Two pairs
-            return (2, rank_counts[0][0])  # One pair
-
-        if is_straight:
-            return (5, is_straight[0])  # Highest card in the straight
-
-        # High card
-        return (1, sorted_cards[0].value)
-
-    def is_straight(self, sorted_cards):
-        """Check for a straight in the sorted list of cards."""
-        unique_cards = sorted(set([card.value for card in sorted_cards]), reverse=True)
-        for i in range(len(unique_cards) - 4):
-            if unique_cards[i] - unique_cards[i + 4] == 4:
-                return (unique_cards[i],)  # Return highest value in the straight as a tuple
-        # Special case for the low Ace
-        if set([14, 5, 4, 3, 2]).issubset(unique_cards):
-            return (5,)  # Highest card in the 5-high straight (5-4-3-2-A) as a tuple
-        return None
-
-
-# Usage
-# players = [Player("Alice"), Player("Bob"), Player("Charlie")]
-# game = TexasHoldem(players)
-# game.start_round()
-
+        print(f"Player piles: {[(player.name, player.pile) for player in (self.players + self.folded_players)]}")

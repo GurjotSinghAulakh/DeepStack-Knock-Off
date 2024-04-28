@@ -1,0 +1,2 @@
+
+MAX_STAGE_RAISES = 4
