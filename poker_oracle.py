@@ -1,6 +1,6 @@
 from collections import Counter
-from player import Player
 import itertools
+import pandas as pd
 import random
 
 
@@ -18,7 +18,7 @@ class PokerHandType:
 
 
 class PokerOracle:
-    VALUES = '23456789TJQKA'
+    VALUES = '9TJQKA'
     VALUE_SCORES = {v: i for i, v in enumerate(VALUES, start=2)}
     SUITS = '♠♥♦♣'
     HAND_RANKINGS = {
@@ -111,25 +111,12 @@ class PokerOracle:
 
         return winning_players
 
-    def generate_utility_matrix(self, public_cards):
-        utility_matrix = {}
-        possible_hands = itertools.combinations(self.generate_deck(), 2)
-
-        for hand in possible_hands:
-            utility_matrix[hand] = {}
-            for opponent_hand in possible_hands:
-                if not (set(hand) & set(opponent_hand)):  # Ensure hands are not overlapping
-                    result = self.simulate_hand_vs_random_opponent(hand, opponent_hand, public_cards)
-                    utility_matrix[hand][opponent_hand] = result
-
-        return utility_matrix
-
-    def evaluate_hole_pair_win_probability(self, hole_cards, public_cards=None, num_simulations=1000):
+    def evaluate_hole_pair_win_probability(self, hole_cards, public_cards=None, num_simulations=1000, cheet_sheet=False):
         public_cards = public_cards or []
         wins = 0
 
         for _ in range(num_simulations):
-            deck = self.generate_deck()
+            deck = self.generate_deck(cheat_sheet=cheet_sheet)
             random.shuffle(deck)
             known_cards = set(hole_cards + public_cards)
             deck = [card for card in deck if card not in known_cards]
@@ -154,8 +141,45 @@ class PokerOracle:
 
         return wins / num_simulations
 
-    def generate_deck(self):
-        return [r + s for r in self.VALUES for s in self.SUITS]
+    def generate_utility_matrix(self, public_cards):
+        utility_matrix = {}
+        possible_hands = itertools.combinations(self.generate_deck(), 2)
+
+        for hand in possible_hands:
+            utility_matrix[hand] = {}
+            for opponent_hand in possible_hands:
+                if not (set(hand) & set(opponent_hand)):  # Ensure hands are not overlapping
+                    result = self.simulate_hand_vs_random_opponent(hand, opponent_hand, public_cards)
+                    utility_matrix[hand][opponent_hand] = result
+
+        return utility_matrix
+
+    def generate_deck(self, cheat_sheet=False):
+        if not cheat_sheet:
+            return [r + s for r in self.VALUES for s in self.SUITS]
+        return [r + s for r in self.VALUES for s in self.SUITS[0]]
+
+    def generate_cheat_sheet(self):
+        cheat_sheet = {}
+        deck = self.generate_deck()
+        possible_hands = itertools.combinations(deck, 2)
+        stages = [3]
+        print("3=276")
+        for idx, possible_hand in enumerate(possible_hands):
+            print(idx)
+            cheat_sheet[possible_hand] = {}
+            cheat_sheet[possible_hand]["winchances"] = {}
+            cheat_sheet[possible_hand]["public_cards"] = {}
+            for stage in stages:
+                winchances = []
+                for public_cards in itertools.combinations(deck, stage):
+                    winchance = self.evaluate_hole_pair_win_probability(list(possible_hand), list(public_cards), num_simulations=10)
+                    winchances.append(winchance)
+                    cheat_sheet[possible_hand]["public_cards"][public_cards] = winchance
+
+                cheat_sheet[possible_hand]["winchances"][stage] = (sum(winchances) / len(winchances))
+
+        return cheat_sheet
 
     # The following methods are helpers for the above functionalities.
     def hand_strength(self, hand):
@@ -207,5 +231,11 @@ if __name__ == "__main__":
 
     hole_cards = deck[:2]
     public_cards = deck[2:5]
-    win_probability = oracle.evaluate_hole_pair_win_probability(hole_cards, public_cards)
-    print(f"Win probability for {hole_cards} with {public_cards}: {win_probability}")
+    public_cards = []
+    util = oracle.generate_cheat_sheet()
+    print(util)
+    df = pd.DataFrame(util)
+    df.to_csv('cheat_sheet.csv', index=False)
+    # print(PokerOracle.all_permuatations(hole_cards, public_cards, deck))
+    # win_probability = oracle.evaluate_hole_pair_win_probability(hole_cards, public_cards, num_simulations=10000)
+    # print(f"Win probability for {hole_cards} with {public_cards}: {win_probability}")
