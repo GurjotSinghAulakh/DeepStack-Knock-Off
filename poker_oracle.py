@@ -1,7 +1,13 @@
 from collections import Counter
 import itertools
 import pandas as pd
+from itertools import combinations
 import random
+from config import BASE_CARDS, COMBINATIONS, SUITS
+import numpy as np
+
+
+PAIR_INDICES = [i for i in range(COMBINATIONS)]
 
 
 class PokerHandType:
@@ -18,9 +24,7 @@ class PokerHandType:
 
 
 class PokerOracle:
-    VALUES = '9TJQKA'
-    VALUE_SCORES = {v: i for i, v in enumerate(VALUES, start=2)}
-    SUITS = '♠♥♦♣'
+    VALUE_SCORES = {v: i for i, v in enumerate(BASE_CARDS, start=2)}
     HAND_RANKINGS = {
         'High Card': PokerHandType.HIGH_CARD,
         'One Pair': PokerHandType.ONE_PAIR,
@@ -80,8 +84,6 @@ class PokerOracle:
     def compare_hands(self, players, public_cards):
         player_rank = {player: self.classify_hand(player.hole_cards + public_cards) for player in players}
         player_hand_ranks = {player: self.HAND_RANKINGS[rank] for player, (rank, _) in player_rank.items()}
-        print(f"\nplayer hand strengths: {player_rank}")
-        # print(f"\nplayer hand ranks: {player_hand_ranks}")
 
         if len(players) == 1:
             return players
@@ -116,7 +118,7 @@ class PokerOracle:
         wins = 0
 
         for _ in range(num_simulations):
-            deck = self.generate_deck(cheat_sheet=cheet_sheet)
+            deck = PokerOracle.generate_deck(cheat_sheet=cheet_sheet)
             random.shuffle(deck)
             known_cards = set(hole_cards + public_cards)
             deck = [card for card in deck if card not in known_cards]
@@ -143,7 +145,7 @@ class PokerOracle:
 
     def generate_utility_matrix(self, public_cards):
         utility_matrix = {}
-        possible_hands = itertools.combinations(self.generate_deck(), 2)
+        possible_hands = itertools.combinations(PokerOracle.generate_deck(), 2)
 
         for hand in possible_hands:
             utility_matrix[hand] = {}
@@ -154,14 +156,126 @@ class PokerOracle:
 
         return utility_matrix
 
-    def generate_deck(self, cheat_sheet=False):
+    @staticmethod
+    def compare_two_hands(hand1, hand2, public_cards, oracle):
+        hand1_rank, hand1_score = oracle.classify_hand(hand1 + public_cards)
+        hand2_rank, hand2_score = oracle.classify_hand(hand2 + public_cards)
+        h1_hand_ranking = oracle.HAND_RANKINGS[hand1_rank]
+        h2_hand_ranking = oracle.HAND_RANKINGS[hand2_rank]
+
+        if h1_hand_ranking > h2_hand_ranking:
+            return 1
+        elif h1_hand_ranking < h2_hand_ranking:
+            return -1
+
+        if max(hand1_score) > max(hand2_score):
+            return 1
+        elif max(hand1_score) < max(hand2_score):
+            return -1
+
+        for i in range(len(hand1 + public_cards)):
+            if hand1_score[i] > hand2_score[i]:
+                return 1
+            elif hand1_score[i] < hand2_score[i]:
+                return -1
+        return 0
+
+    @staticmethod
+    def calculate_utility_matrix(public_cards: list[str]):
+        """
+        Calculates the utility matrix for the given ranges
+
+        a value of 1 at (i, j) means that hole card i wins over hole card j
+        """
+        oracle = PokerOracle()
+        all_hole_cards = PokerOracle.all_hole_combinations()
+        num_combinations = len(all_hole_cards)
+        utility_matrix = np.zeros((num_combinations, num_combinations))
+
+        for i in range(num_combinations):
+            hand1 = PokerOracle.range_index_to_cards(all_hole_cards, i)
+            if any(card in public_cards for card in hand1):
+                continue  # Skip if any card in hand1 is in public cards
+
+            for j in range(num_combinations):
+
+                hand2 = PokerOracle.range_index_to_cards(all_hole_cards, j)
+                if any(card in public_cards for card in hand2) or any(card in hand2 for card in hand1):
+                    continue  # Skip if any card in hand2 is in public cards or hand1
+
+                result = PokerOracle.compare_two_hands(hand1, hand2, public_cards, oracle)
+                if result == 1:
+                    utility_matrix[i, j] = 1
+                    utility_matrix[j, i] = -1
+                elif result == -1:
+                    utility_matrix[j, i] = 1
+                    utility_matrix[i, j] = -1
+                elif result == 0:
+                    utility_matrix[i, j] = 0
+                    utility_matrix[j, i] = 0
+
+        assert np.all(utility_matrix == -utility_matrix.T), "Utility matrix is not symmetric"
+        assert np.sum(utility_matrix) == 0, "Utility matrix is not zero-sum"
+        return utility_matrix
+
+    @staticmethod
+    def calculate_utility_matrix_bak(public_cards: list[str]):
+        """
+        Calculates the utility matrix for the given ranges
+
+        a value of 1 at (i, j) means that hole card i wins over hole card j
+        """
+        oracle = PokerOracle()
+        hand_strenghts = np.zeros(COMBINATIONS)
+        for i in range(COMBINATIONS):
+            all_hole_cards = PokerOracle.all_hole_combinations()
+            current_hand = PokerOracle.range_index_to_cards(all_hole_cards, i)
+
+            if any(card in public_cards for card in current_hand):
+                continue
+            # for card in current_hand:
+            #     if card in public_cards:
+            #         duplicate_cards = True
+
+            # if duplicate_cards:
+            #     continue
+
+            hand_strenghts[i] = PokerOracle.evaluate_hand(current_hand + public_cards)
+
+        m = np.sign(-np.subtract.outer(hand_strenghts, hand_strenghts))
+        return m
+
+    @staticmethod
+    def generate_deck(cheat_sheet=False, randomize=False):
         if not cheat_sheet:
-            return [r + s for r in self.VALUES for s in self.SUITS]
-        return [r + s for r in self.VALUES for s in self.SUITS[0]]
+            r = [r + s for r in BASE_CARDS for s in SUITS]
+        else:
+            r = [r + s for r in BASE_CARDS for s in SUITS[0]]
+
+        if randomize:
+            random.shuffle(r)
+        return r
+
+    @staticmethod
+    def all_hole_combinations(return_deck=False):
+        deck = PokerOracle.generate_deck()
+        all_permutations = combinations(deck, 2)
+        if return_deck:
+            return list(all_permutations), deck
+        return list(all_permutations)
+
+    @staticmethod
+    def cards_to_range_index(all_hole_cards, card1, card2):
+        return all_hole_cards.index((card1, card2))
+
+    @staticmethod
+    def range_index_to_cards(all_hole_cards, index):
+        return all_hole_cards[index]
+
 
     def generate_cheat_sheet(self):
         cheat_sheet = {}
-        deck = self.generate_deck()
+        deck = PokerOracle.generate_deck()
         possible_hands = itertools.combinations(deck, 2)
         stages = [3]
         print("3=276")
@@ -200,7 +314,7 @@ class PokerOracle:
         wins = 0
 
         # Generate a list of the remaining cards
-        remaining_deck = [card for card in self.generate_deck() if card not in hole_cards + public_cards]
+        remaining_deck = [card for card in PokerOracle.generate_deck() if card not in hole_cards + public_cards]
 
         for _ in range(simulations):
             # Shuffle the remaining cards and deal them out
@@ -226,7 +340,7 @@ class PokerOracle:
 
 if __name__ == "__main__":
     oracle = PokerOracle()
-    deck = oracle.generate_deck()
+    deck = PokerOracle.generate_deck()
     random.shuffle(deck)
 
     hole_cards = deck[:2]
