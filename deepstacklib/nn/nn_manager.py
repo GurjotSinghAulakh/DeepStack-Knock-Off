@@ -59,7 +59,7 @@ class NNManager:
             sorted_dirs = sorted(folders, key=os.path.getmtime)
             dir = sorted_dirs[version]
 
-            f = glob(f"./deepstacklib/{dir}/checkpoints/*.ckpt")[0]
+            f = glob(f"./{dir}/checkpoints/*.ckpt")[0]
             network = DeepstackNN.load_from_checkpoint(f, range_size=COMBINATIONS, public_info_size=n_pub)
         except Exception as e:
             print(f"Failed to load network for stage {stage.name}, version {version}, Error: {e}")
