@@ -45,8 +45,8 @@ class Resolver:
 
         mean_strategy = strategies.mean(axis=0)
 
-        action_probs = r1 @ mean_strategy
-        action_probs /= np.sum(action_probs)
+        action_probs = r1 @ mean_strategy     # Expected value of each action, given the current strategy
+        action_probs /= np.sum(action_probs)  # Normalize the probabilities
 
         action_index = np.random.choice(len(ACTIONS), p=action_probs)
 

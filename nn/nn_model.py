@@ -56,7 +56,6 @@ class DeepstackNN(pl.LightningModule):
         values = self.value_output(features)
         v1, v2 = values.split([self.range_size, self.range_size], dim=1)
 
-        # Assume r1 and r2 are the range vectors provided with the input in a similar split manner
         r1, r2, _ = inputcopy.split([self.range_size, self.range_size, self.public_info_size + 1], dim=1)
 
         p1_ev = torch.sum(r1 * v1, dim=1, keepdim=True)
@@ -132,11 +131,6 @@ class DeepstackNN(pl.LightningModule):
         loss_p1 = nn.functional.mse_loss(v1, p1_target)
         loss_p2 = nn.functional.mse_loss(v2, p2_target)
         loss_ev = nn.functional.mse_loss(ev_sum, torch.zeros_like(ev_sum))
-
-        # zero_masked_v1 = (p1_target == 0)
-        # zero_masked_v2 = (p2_target == 0)
-        # mask_pen_v1 = nn.functional.mse_loss(v1 * zero_masked_v1, torch.zeros_like(v1))
-        # mask_pen_v2 = nn.functional.mse_loss(v2 * zero_masked_v2, torch.zeros_like(v2))
 
         total_loss = loss_p1 + loss_p2 + loss_ev  # + mask_pen_v1 + mask_pen_v2
         return total_loss

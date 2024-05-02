@@ -6,6 +6,7 @@ import numpy as np
 from state.state_manager import PokerGameStage, GameState, StateManager, PokerGameStateType
 from game.poker_oracle import PokerOracle, PAIR_INDICES
 from clients.actions import Action, ACTIONS, agent_action_index
+from utils.config import RESOLVER_CHILDREN_ACTION_LIMIT, RESOLVER_N_CHILD_STATES
 from utils.torchutils import to_vec_in
 from nn.nn_manager import NNManager
 
@@ -113,17 +114,17 @@ class SubtreeManager:
                 child.visited = NodeVisitStatus.UNVISITED
             return
 
-        child_states: list[tuple[Action, GameState]] = StateManager.get_child_states(node.state, 5)
-
+        # Limit the number of children to generate
+        child_states: list[tuple[Action, GameState]] = StateManager.get_child_states(node.state, RESOLVER_N_CHILD_STATES)
         random.shuffle(child_states)
 
-        nbr_actions = 0
+        n_actions = 0
         for action, new_state in child_states:
             # Limit child generation
             if action is not None and action_limit != -1:
-                if nbr_actions >= action_limit:
+                if n_actions >= action_limit:
                     break
-                nbr_actions += 1
+                n_actions += 1
 
             depth = node.depth + 1 if node.stage == new_state.stage else 0
             node_type = NodeType.PLAYER
@@ -140,9 +141,7 @@ class SubtreeManager:
                 node_type = NodeType.SHOWDOWN
             elif new_state.game_state_type == PokerGameStateType.WINNER:
                 node_type = NodeType.WON
-            elif new_state.stage.value > self.end_stage.value or (
-                new_state.stage == self.end_stage and depth == self.end_depth
-            ):
+            elif new_state.stage.value > self.end_stage.value or (new_state.stage == self.end_stage and depth == self.end_depth):
                 node_type = NodeType.TERMINAL
                 utility_matrix = PokerOracle.calculate_utility_matrix(new_state.public_info)
             elif new_state.game_state_type == PokerGameStateType.DEALER:
@@ -150,14 +149,14 @@ class SubtreeManager:
                 utility_matrix = PokerOracle.calculate_utility_matrix(new_state.public_info)
 
             new_node = SubtreeNode(
-                new_state.stage,
-                new_state,
-                depth,
-                node_type,
-                node.strategy,
-                utility_matrix,
-                node.regrets.copy(),
-                node.values.copy(),
+                stage=new_state.stage,
+                state=new_state,
+                depth=depth,
+                node_type=node_type,
+                strategy=node.strategy,
+                utility_matrix=utility_matrix,
+                regrets=node.regrets.copy(),
+                values=node.values.copy(),
             )
             node.children.append((action, new_node))
 
@@ -177,6 +176,8 @@ class SubtreeManager:
         node.visited = NodeVisitStatus.VISITED_THIS_ITERATION
         match node.node_type:
             case NodeType.SHOWDOWN:
+                # If we are at a showdown node, we can calculate the utility directly
+                # based on the utility matrix and the ranges. We then multiply by the pot size to get the actual utility
                 v1 = node.utility_matrix @ r2.T
                 v2 = -r1 @ node.utility_matrix
 
@@ -184,6 +185,8 @@ class SubtreeManager:
                 v2 *= node.state.pot
 
             case NodeType.WON:
+                # If we are at a won node, we can calculate the utility directly
+                # based on the winner index and the pot size
                 if node.state.winner_index == self.root_player_index:
                     v1 = np.ones_like(v1)
                     v2 = -np.ones_like(v2)
@@ -195,10 +198,15 @@ class SubtreeManager:
                 v2 *= node.state.pot
 
             case NodeType.TERMINAL:
+                # If we are at a terminal node, we can estumate the utility by using one of 3 neural networks
                 network = self.nn_manager.get_network(node.state.stage)
                 in_vector = to_vec_in(r1, r2, node.state.public_info, node.state.pot)
                 v1, v2 = network.predict_values(in_vector)
             case NodeType.PLAYER:
+                # If we are at a player node, we need to calculate the utility based on the children
+                # We do this by recursively calling this function on the children and updating the utility
+                # based on the strategy and the values of the children, eventually returning the utility for the players,
+                # either directly or by estimating the utility based on the children
                 ranges = [r1, r2]
 
                 player_index = (node.state.current_player_index + self.root_player_index) % 2
@@ -206,10 +214,8 @@ class SubtreeManager:
                 r_p = ranges[player_index]
                 r_o = ranges[1 - player_index]
 
-                # Rollouts generate the tree each time
-                nbr_actions = 2
                 node.children = []
-                self.generate_children(node, action_limit=nbr_actions)
+                self.generate_children(node, action_limit=RESOLVER_CHILDREN_ACTION_LIMIT)  # Limit the number of children to generate
                 for action, child in node.children:
                     if child.visited == NodeVisitStatus.VISITED_PREVIOUSLY:
                         continue
@@ -228,6 +234,9 @@ class SubtreeManager:
                     v2 += node.strategy[:, a] * v2_a
 
             case NodeType.CHANCE:
+                # If we are at a chance node, we need to calculate the utility based on the children
+                # First, we update the ranges wrt the new public cards, then we recursively call this function on the children
+                # which eventually returns either the utility or estimates the utility
                 self.generate_children(node)
                 S = len(node.children)
                 for _, child in node.children:
