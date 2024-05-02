@@ -71,7 +71,7 @@ class Player:
 
         # Get the indexes of the legal actions
         action_indexes = {action.value: action for action in actions}
-        print(f"\nLegal actions for {self.name}: {action_indexes}, Hole cards: {self.hole_cards}, community_cards: {state.public_info}")
+        print(f"\nLegal actions for {self.name}: {actions}, Hole cards: {self.hole_cards}, community_cards: {state.public_info}")
 
         # Ask the user to choose an action
         while True:
