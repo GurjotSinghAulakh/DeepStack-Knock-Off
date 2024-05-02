@@ -32,6 +32,7 @@ class GameManager:
             public_info=[],
             deck=PokerOracle.generate_deck(randomize=True),
         )
+        self.wins = {player.name: 0 for player in players}
 
     def start_game(self, num_games: int = 10):
         print(f"\n{'=' * 20}")
@@ -85,7 +86,7 @@ class GameManager:
             print(f"Winnings: {self.game_state.pot}")
             total_index = self.players.index(self.winner)
             self.game_state.player_chips[total_index] += self.game_state.pot
-
+            self.wins[self.winner.name] += 1  # Increment the win count for the winner
         self.rotate_blinds()
 
         for player in self.players:
