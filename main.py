@@ -1,13 +1,11 @@
-# from game_manager import GameManager
-from gm import GameManager
-from player import Player
+from game.game_manager import GameManager
+from clients.player import Player
 
 
 def main():
-    player1 = Player(is_human=False, pile=1000, name="Player 1", aggresiveness=1)
-    # player2 = Player(is_human=False, pile=10000, name="Player 2", aggresiveness=0.1)
-    player2 = Player(is_human=False, pile=1000, name="Player 2", eval_hole_probs=True)
-    # player3 = Player(is_human=False, pile=100, name="Player 3")
+    player1 = Player(name="Player 1", agent_type="resolve")
+    player2 = Player(name="Player 2", agent_type="rollout")
+    # player3 = Player(is_human=False, name="Player 3", agent_type="random")
     game = GameManager(players=[player1, player2])
     game.start_game(num_games=150)
 
