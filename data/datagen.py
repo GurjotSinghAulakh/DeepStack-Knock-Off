@@ -5,7 +5,7 @@ from state.state_manager import GameState, PokerGameStage
 from game.poker_oracle import PokerOracle
 from clients.actions import ACTIONS
 from utils.torchutils import to_vec_in, from_vec_out
-import lightning as pl
+import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader, random_split
 import multiprocessing as mp

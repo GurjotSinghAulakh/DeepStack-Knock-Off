@@ -30,6 +30,6 @@ ACTIONS = [
     Action(ActionType.RAISE, 10),
 ]
 
-
+# Function to get the index of an agent's action
 def agent_action_index(action: Action) -> int:
     return action.action_type.value

@@ -39,12 +39,10 @@ class GameManager:
         print("Starting a new round!")
         self.game_state.reset_for_new_round(redistribute_chips=False)
 
-        # for player in self.players:
-        #     player.reset_ranges()
-
         self.claim_blinds()
         self.deal_cards()
 
+        # Main game loop
         while True:
             self.display()
             if self.game_state.game_state_type == PokerGameStateType.WINNER:
@@ -81,6 +79,7 @@ class GameManager:
             if action.action_type == ActionType.RAISE:
                 print(f"Amount: {action.amount}")
 
+        # Handle end of game
         if self.winner is not None:
             print(f"{self.winner.name} won the game!")
             print(f"Winnings: {self.game_state.pot}")
@@ -89,17 +88,20 @@ class GameManager:
             self.wins[self.winner.name] += 1  # Increment the win count for the winner
         self.rotate_blinds()
 
+        # Check if any players are out of chips
         for player in self.players:
             index = self.players.index(player)
             if self.game_state.player_chips[index] <= 0:
                 print(f"{player.name} is out of chips!")
                 return
 
+        # Check if the game is over
         if num_games == 0:
             print("Game over!")
             print(f"Players have: {self.game_state.player_chips} chips")
             return
 
+        # Start a new game if there are more games to play
         self.start_game(num_games - 1)
 
     def showdown(self) -> None:

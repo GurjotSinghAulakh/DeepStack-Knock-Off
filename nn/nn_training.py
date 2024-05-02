@@ -1,4 +1,4 @@
-from lightning import Trainer
+from pytorch_lightning import Trainer
 from state.state_manager import PokerGameStage
 from nn.nn_model import DeepstackNN
 from utils.config import COMBINATIONS

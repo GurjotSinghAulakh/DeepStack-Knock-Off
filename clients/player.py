@@ -22,6 +22,7 @@ class Player:
         """
         Post initialization setup
         """
+        # Initialize the player's ranges and opponent's strategy
         self.r1 = np.ones(self.range_size) / self.range_size
         self.r2 = np.ones(self.range_size) / self.range_size
         self.opponent_strategy = np.ones((self.range_size, len(ACTIONS))) / len(ACTIONS)
@@ -67,8 +68,12 @@ class Player:
         Returns:
         Action - the chosen action
         """
+
+        # Get the indexes of the legal actions
         action_indexes = {agent_action_index(action): action.action_type for action in actions}
         print(f"\nLegal actions for {self.name}: {action_indexes}, Hole cards: {self.hole_cards}, community_cards: {state.public_info}")
+        
+        # Ask the user to choose an action
         while True:
             try:
                 chosen_idx = int(input("Choose an action: "))
@@ -90,7 +95,11 @@ class Player:
         Returns:
         Action - the chosen action
         """
+
+        # Get the legal actions for the current state
         legal_actions = StateManager.get_legal_actions(state)
+
+        # Choose an action based on the agent type
         if self.agent_type == "random":
             idx = np.random.randint(len(legal_actions))
             act_type = legal_actions[idx]
@@ -103,6 +112,8 @@ class Player:
         elif self.agent_type == "human":
             act = self.choose_action(legal_actions, state)
             act_type = act.action_type
+
+        # If the action is a raise, set the amount to 10
         if act_type == ActionType.RAISE:
             amount = 10
         else:
@@ -132,12 +143,15 @@ class Player:
         Returns:
         Action - the chosen action
         """
+
+        # Get the win probability for the current state
         win_probability = 0
         if game_state.stage == PokerGameStage.PRE_FLOP:
             win_probability = PokerOracle().get_cheat_sheet_probs(self.hole_cards)
         else:
             win_probability = PokerOracle().evaluate_hole_pair_win_probability(self.hole_cards, game_state.public_info, num_simulations=5000)
 
+        # Choose an action based on the win probability
         if win_probability < 0.1:
             return Action(ActionType.FOLD, 0)
         elif win_probability < 0.5:
@@ -163,12 +177,15 @@ class Player:
         Returns:
         Action - the chosen action
         """
+
+        # Initialize the resolver and the state
         resolver = Resolver()
         state = game_state
         r1 = self.r1
         r2 = self.r2
         end_depth = 1
 
+        # Determine the end stage based on the current stage
         current_stage = game_state.stage
         if current_stage == PokerGameStage.PRE_FLOP:
             return self.rollout_action(legal_actions, game_state)
@@ -179,6 +196,7 @@ class Player:
         else:
             end_stage = PokerGameStage.SHOWDOWN
 
+        # Resolve the game tree and choose an action
         action, self.r1, self.r2, self.opponent_strategy = resolver.resolve(
             state, r1, r2, end_stage, end_depth, RESOLVER_ROLLOUTS
         )

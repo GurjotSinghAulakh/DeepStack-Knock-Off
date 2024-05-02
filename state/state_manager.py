@@ -54,6 +54,7 @@ class GameState:
         self.winner_index: int = winner_index
 
     def copy(self):
+        # Returns a deep copy of the current object
         return copy.deepcopy(self)
 
     def inc_player_idx(self):
@@ -102,6 +103,9 @@ class StateManager:
 
     @staticmethod
     def get_actions_with_new_states(state: GameState) -> list[tuple[Action, GameState]]:
+        """
+        Generates a list of possible actions and the resulting states from those actions
+        """
         game_state = state.copy()
         action_types = StateManager.get_legal_actions(game_state)
 
@@ -123,6 +127,9 @@ class StateManager:
 
     @staticmethod
     def get_legal_actions(state: GameState):
+        """
+        Returns the legal actions for the current player based on the game stage and betting round
+        """
         actions = [ActionType.FOLD]
         max_bet = np.max(state.player_bets)
         player_bet = state.player_bets[state.current_player_index]
@@ -147,6 +154,9 @@ class StateManager:
 
     @staticmethod
     def bet(player_idx: int, amount: int, state: GameState):
+        """
+        Updates the game state by placing a bet from the specified player with the given amount
+        """
         s = state.copy()
         s.player_chips[player_idx] -= amount
         s.player_bets[player_idx] += amount
@@ -159,10 +169,16 @@ class StateManager:
 
     @staticmethod
     def has_enough(player_idx: int, amount: int, state: GameState):
+        """
+        Checks if the player has enough chips to make the given bet/action
+        """
         return state.player_chips[player_idx] >= amount
 
     @staticmethod
     def get_new_state_for_action(state: GameState, action: Action):
+        """
+        Returns a new GameState object that is the result of the given action in the given state
+        """
         s = state.copy()
         pot_raised = False
 
