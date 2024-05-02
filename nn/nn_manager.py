@@ -23,13 +23,11 @@ class NNManager:
         DeepstackNN - the network for the stage
         """
         if stage == PokerGameStage.FLOP:
-            network = self.flop_network
+            return self.flop_network
         elif stage == PokerGameStage.TURN:
-            network = self.turn_network
+            return self.turn_network
         elif stage == PokerGameStage.RIVER:
-            network = self.river_network
-
-        return network
+            return self.river_network
 
     def load_network(self, stage: PokerGameStage, version: int = -1) -> DeepstackNN:
         """

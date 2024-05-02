@@ -24,7 +24,7 @@ class DeepstackNN(pl.LightningModule):
 
     def predict_values(self, x: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
         """
-        Utility function to predict values from input tensor
+        Utility wrapper function to predict values from input tensor
 
         args:
         x: torch.Tensor - input tensor
@@ -32,7 +32,7 @@ class DeepstackNN(pl.LightningModule):
         returns:
         tuple[np.ndarray, np.ndarray] - predicted values for player 1 and player 2
         """
-        v1, v2, _ = self(x)
+        v1, v2, _ = self(x)  # Discarding ev_sum here, that is only used for traning.
         return v1.detach().numpy().flatten(), v2.detach().numpy().flatten()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -85,15 +85,14 @@ class DeepstackNN(pl.LightningModule):
         returns:
         torch.Tensor - loss
         """
-        x, p1_target, p2_target = batch.split([
-            self.range_size * 2 + self.public_info_size + 1,
-            self.range_size,
-            self.range_size,
-        ], dim=1)
-        v1, v2, ev_sum = self(x)
-
-        loss = self.custom_loss(v1, v2, ev_sum, p1_target, p2_target)
-        self.log('train_loss', loss)
+        x, p1_target, p2_target = batch.split([                        # The Tensor is structured as follows:
+            self.range_size * 2 + self.public_info_size + 1,           # range_size          |   (276-len float range vector for player 1)
+            self.range_size,                                           # + range_size        |   (276-len float range vector for player 1)
+            self.range_size,                                           # + public_info_size  |   (5-3 ints, public cards)
+        ], dim=1)                                                      # + 1                 |   (1 int, pot size)
+        v1, v2, ev_sum = self(x)                                       # + range_size        |   (276-len float value vectors for player 1)
+        loss = self.custom_loss(v1, v2, ev_sum, p1_target, p2_target)  # + range_size        |   (276-len float value vectors for player 2)
+        self.log('train_loss', loss)                                   # = 1108 - 1111
         return loss
 
     def validation_step(self, batch: torch.Tensor) -> None:
