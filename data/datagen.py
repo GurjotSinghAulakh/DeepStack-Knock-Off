@@ -196,12 +196,7 @@ def get_data_mp(stage: PokerGameStage, n_pub: int, total_items: int, n_processes
 
 
 class PokerDataModule(pl.LightningDataModule):
-    def __init__(
-        self,
-        stage: PokerGameStage,
-        batch_size: int,
-        data_size: int = 1000,
-    ):
+    def __init__(self, stage: PokerGameStage, batch_size: int, data_size: int = 1000):
         super().__init__()
         self.stage = stage
         self.data_dir = f"data/{stage.name}"
@@ -209,24 +204,38 @@ class PokerDataModule(pl.LightningDataModule):
         self.data_size = data_size
         self.workers = 8
 
-    def setup(self, stage: str):
+    def setup(self, stage: str = None) -> None:
+        """
+        DataModule setup. This function is called once before the training starts internally by PyTorch Lightning
+        """
+
+        if self.stage == PokerGameStage.RIVER:
+            offset = 5
+            mean = 62
+            std = 32
+        elif self.stage == PokerGameStage.TURN:
+            offset = 4
+            mean = 47
+            std = 25
+        elif self.stage == PokerGameStage.FLOP:
+            offset = 3
+            mean = 32
+            std = 17
+
         if not os.path.exists(self.data_dir):
-            self.generate_dataset(self.stage, self.data_size, show_progress=True)
+            os.makedirs(self.data_dir)
+
+        if not os.path.exists(f"{self.data_dir}/data_tensor.pt"):
+            print(f"Generating {self.data_size} data points for {self.stage.name} with 8 cores. This may take a while...")
+            data = get_data_mp(stage=self.stage, n_pub=offset, total_items=self.data_size, n_processes=8)
+            tensordata = torch.cat(data)
+            torch.save(tensordata, f"{self.data_dir}/data_tensor.pt")
+            print(f"Saved data as {self.data_dir}/data_tensor.pt")
 
         all = torch.load(f"{self.data_dir}/data_tensor.pt")
         all = all.type(torch.float32)
 
-        if self.stage == PokerGameStage.RIVER:
-            mean = 62
-            std = 32
-        elif self.stage == PokerGameStage.TURN:
-            mean = 47
-            std = 25
-        elif self.stage == PokerGameStage.FLOP:
-            mean = 32
-            std = 17
-
-        pot_index = 276 * 2 + 5
+        pot_index = 276 * 2 + offset
         all[:, pot_index] = self.normalize(all[:, pot_index], std, mean)
 
         val_fraction = 0.2
@@ -240,23 +249,13 @@ class PokerDataModule(pl.LightningDataModule):
         return (data - mean) / std
 
     def train_dataloader(self):
-        return DataLoader(
-            self.train_data,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.workers,
-            persistent_workers=True
-        )
+        return DataLoader(self.train_data, batch_size=self.batch_size, shuffle=True, num_workers=self.workers, persistent_workers=True)
 
     def val_dataloader(self):
-        return DataLoader(
-            self.val_data, batch_size=self.batch_size, num_workers=self.workers, persistent_workers=True, shuffle=False
-        )
+        return DataLoader(self.val_data, batch_size=self.batch_size, num_workers=self.workers, persistent_workers=True, shuffle=False)
 
     def test_dataloader(self):
-        return DataLoader(
-            self.test_data, batch_size=self.batch_size, num_workers=self.workers, persistent_workers=True, shuffle=True
-        )
+        return DataLoader(self.test_data, batch_size=self.batch_size, num_workers=self.workers, persistent_workers=True, shuffle=True)
 
 
 if __name__ == "__main__":
