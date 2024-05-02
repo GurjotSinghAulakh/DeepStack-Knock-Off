@@ -96,7 +96,7 @@ class GameManager:
                 return
 
         # Check if the game is over
-        if num_games == 0:
+        if num_games == 1:
             print("Game over!")
             print(f"Players have: {self.game_state.player_chips} chips")
             return
